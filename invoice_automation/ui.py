@@ -56,6 +56,10 @@ with col1:
     form_data = {}
     
     for field_key, field_config in INVOICE_FIELDS.items():
+        # Skip calculated fields from UI display
+        if field_key in ['due_date', 'vat_amount', 'total_in_words', 'total_amount']:
+            continue
+        
         label = field_config['label']
         is_readonly = field_config.get('read_only', False)
         field_type = field_config.get('type', 'string')
@@ -194,29 +198,8 @@ with col1:
             
             form_data[field_key] = vat_percent
             
-            # Display VAT amount (read-only, calculated)
+            # Calculate VAT amount (not shown in UI)
             st.session_state.calc_vat_amount = (st.session_state.calc_budget * vat_percent) / 100
-            st.number_input(
-                label="VAT Amount",
-                value=st.session_state.calc_vat_amount,
-                disabled=True,
-                key="vat_amount_display",
-                format="%.2f"
-            )
-            # include VAT amount in form data to be written to the sheet
-            form_data['vat_amount'] = st.session_state.calc_vat_amount
-        
-        # Special handling for total amount (read-only, calculated)
-        elif field_key == 'total_amount':
-            st.session_state.calc_total_amount = st.session_state.calc_budget + st.session_state.calc_vat_amount
-            st.number_input(
-                label=label,
-                value=st.session_state.calc_total_amount,
-                disabled=True,
-                key=f"field_{field_key}",
-                format="%.2f"
-            )
-            form_data[field_key] = st.session_state.calc_total_amount
         
         # Read-only fields
         elif is_readonly:
@@ -267,9 +250,15 @@ with col2:
                         due_str = due_dt.strftime("%d/%m/%Y")
                         form_data['due_date'] = due_str
                     except Exception:
-                        # leave due_date as-is if parsing fails
                         pass
 
+                # Include calculated VAT amount
+                form_data['vat_amount'] = st.session_state.calc_vat_amount
+                
+                # Compute total amount
+                st.session_state.calc_total_amount = st.session_state.calc_budget + st.session_state.calc_vat_amount
+                form_data['total_amount'] = st.session_state.calc_total_amount
+                
                 # Compute total in words (dollars only)
                 try:
                     total_val = float(form_data.get('total_amount', 0) or 0)
@@ -338,12 +327,13 @@ st.subheader("📊 Summary")
 summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
 
 with summary_col1:
-    st.metric("Budget", f"AED {st.session_state.calc_budget:,.2f}")
+    st.metric("Budget", f"$ {st.session_state.calc_budget:,.2f}")
 with summary_col2:
     st.metric("VAT Type", st.session_state.calc_vat_type)
 with summary_col3:
-    st.metric("VAT Amount", f"AED {st.session_state.calc_vat_amount:,.2f}")
+    st.metric("VAT Amount", f"$ {st.session_state.calc_vat_amount:,.2f}")
 with summary_col4:
-    st.metric("Total Amount", f"AED {st.session_state.calc_total_amount:,.2f}", delta=f"+{st.session_state.calc_vat_amount:.2f}" if st.session_state.calc_vat_amount > 0 else None)
+    st.session_state.calc_total_amount = st.session_state.calc_budget + st.session_state.calc_vat_amount
+    st.metric("Total Amount", f"$ {st.session_state.calc_total_amount:,.2f}", delta=f"+{st.session_state.calc_vat_amount:.2f}" if st.session_state.calc_vat_amount > 0 else None)
 
 st.caption("Invoice Template Automation System")

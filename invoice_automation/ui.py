@@ -1,147 +1,283 @@
 """
-PySimpleGUI-based UI for Invoice Template Automation
+Streamlit-based UI for Invoice Template Automation with enhanced features
 """
 
-import PySimpleGUI as sg
+import streamlit as st
 from config import INVOICE_FIELDS
 from excel_handler import ExcelHandler
 from validator import InvoiceValidator
-import os
+from datetime import datetime, date
+import calendar
 
 
-class InvoiceUI:
-    """User Interface for Invoice Template Automation"""
+# Page config
+st.set_page_config(
+    page_title="Invoice Template Automation",
+    page_icon="📄",
+    layout="wide"
+)
+
+st.title("📄 Invoice Template Editor")
+st.markdown("---")
+
+# Initialize session state
+if 'excel_handler' not in st.session_state:
+    st.session_state.excel_handler = ExcelHandler()
+    st.session_state.validator = InvoiceValidator()
+    try:
+        st.session_state.excel_handler.load_template()
+        st.session_state.current_data = st.session_state.excel_handler.get_all_template_values()
+    except Exception as e:
+        st.error(f"Error loading template: {str(e)}")
+        st.stop()
+
+# Initialize calculation fields in session state
+if 'calc_quantity' not in st.session_state:
+    st.session_state.calc_quantity = float(st.session_state.current_data.get('quantity', 0) or 0)
+if 'calc_rate' not in st.session_state:
+    st.session_state.calc_rate = float(st.session_state.current_data.get('rate', 0) or 0)
+if 'calc_budget' not in st.session_state:
+    st.session_state.calc_budget = 0.0
+if 'calc_vat_type' not in st.session_state:
+    st.session_state.calc_vat_type = 'non-GCC'
+if 'calc_vat_amount' not in st.session_state:
+    st.session_state.calc_vat_amount = 0.0
+if 'calc_total_amount' not in st.session_state:
+    st.session_state.calc_total_amount = 0.0
+
+# Create columns for better layout
+col1, col2 = st.columns([3, 1])
+
+with col1:
+    st.subheader("Invoice Details")
     
-    def __init__(self):
-        sg.theme('LightBlue2')
-        self.excel_handler = ExcelHandler()
-        self.validator = InvoiceValidator()
-        self.current_data = {}
-        
-    def load_template(self):
-        """Load template file"""
-        try:
-            self.excel_handler.load_template()
-            self.current_data = self.excel_handler.get_all_template_values()
-            return True
-        except Exception as e:
-            sg.popup_error(f"Error loading template: {str(e)}")
-            return False
+    # Create form fields
+    form_data = {}
     
-    def create_window(self):
-        """Create the main UI window"""
-        layout = [
-            [sg.Text('Invoice Template Editor', font=('Any', 16, 'bold'))],
-            [sg.Separator()],
-        ]
+    for field_key, field_config in INVOICE_FIELDS.items():
+        label = field_config['label']
+        is_readonly = field_config.get('read_only', False)
+        field_type = field_config.get('type', 'string')
+        current_value = st.session_state.current_data.get(field_key, '')
         
-        # Add fields for each invoice element
-        for field_key, field_config in INVOICE_FIELDS.items():
-            label = field_config['label']
-            is_readonly = field_config.get('read_only', False)
-            field_type = field_config.get('type', 'string')
+        if current_value is None:
+            current_value = ''
+        
+        # Special handling for invoice_no with prefix
+        if field_key == 'invoice_no':
+            st.markdown("**Invoice No.**")
+            col_prefix, col_number = st.columns([0.4, 0.6])
+            with col_prefix:
+                st.text_input("Prefix", value="INV-FY2526-", disabled=True, key="invoice_prefix")
+            with col_number:
+                invoice_number = st.text_input("Number", value=str(current_value).replace("INV-FY2526-", ""), key=f"field_{field_key}", placeholder="e.g., 001")
+                form_data[field_key] = f"INV-FY2526-{invoice_number}"
+        
+        # Special handling for date - add calendar picker
+        elif field_key == 'date':
+            st.markdown("**Date**")
+            col_input, col_button = st.columns([0.8, 0.2])
+            with col_input:
+                # Use temp_date if it was set from picker, otherwise use current_value
+                display_value = st.session_state.get('temp_date', str(current_value))
+                date_input = st.text_input(
+                    label="Select Date",
+                    value=display_value,
+                    key=f"field_{field_key}",
+                    placeholder="DD/MM/YYYY"
+                )
+                form_data[field_key] = date_input
+            with col_button:
+                if st.button("📅", key="date_picker_btn", help="Pick Date", use_container_width=True):
+                    st.session_state.show_date_picker = True
             
-            # Get current value or empty string
-            current_value = self.current_data.get(field_key, '')
-            if current_value is None:
-                current_value = ''
+            if st.session_state.get('show_date_picker', False):
+                st.write("**Select Date:**")
+                picker_col1, picker_col2, picker_col3 = st.columns(3)
+                with picker_col1:
+                    day = st.selectbox("Day", list(range(1, 32)), key="date_day")
+                with picker_col2:
+                    month = st.selectbox("Month", list(range(1, 13)), format_func=lambda x: calendar.month_name[x], key="date_month")
+                with picker_col3:
+                    year = st.number_input("Year", min_value=2020, max_value=2100, value=datetime.now().year, key="date_year")
+                
+                if st.button("Apply Date", key="apply_date_btn"):
+                    selected_date = f"{day:02d}/{month:02d}/{year:04d}"
+                    st.session_state.temp_date = selected_date
+                    st.session_state.show_date_picker = False
+                    st.rerun()
+        
+        # Special handling for delivery_month - add calendar picker
+        elif field_key == 'delivery_month':
+            st.markdown("**Delivery Month**")
+            col_input, col_button = st.columns([0.8, 0.2])
+            with col_input:
+                # Use temp_delivery_month if it was set from picker, otherwise use current_value
+                display_value = st.session_state.get('temp_delivery_month', str(current_value))
+                delivery_month_input = st.text_input(
+                    label="Select Month",
+                    value=display_value,
+                    key=f"field_{field_key}",
+                    placeholder="MM/YYYY"
+                )
+                form_data[field_key] = delivery_month_input
+            with col_button:
+                if st.button("📅", key="delivery_calendar", help="Select Month and Year", use_container_width=True):
+                    st.session_state.show_delivery_picker = True
             
-            # Special handling for different field types
-            if field_type == 'date':
-                layout.append([
-                    sg.Text(label, size=(20, 1)),
-                    sg.Input(str(current_value), key=field_key, readonly=is_readonly, size=(30, 1))
-                ])
-            elif field_type == 'numeric':
-                layout.append([
-                    sg.Text(label, size=(20, 1)),
-                    sg.Input(str(current_value), key=field_key, readonly=is_readonly, size=(30, 1))
-                ])
+            if st.session_state.get('show_delivery_picker', False):
+                st.write("**Select Month and Year:**")
+                picker_col1, picker_col2 = st.columns(2)
+                with picker_col1:
+                    month = st.selectbox("Month", list(range(1, 13)), format_func=lambda x: calendar.month_name[x], key="delivery_month_select")
+                with picker_col2:
+                    year = st.number_input("Year", min_value=2020, max_value=2100, value=datetime.now().year, key="delivery_year_select")
+                
+                if st.button("Apply Month", key="apply_delivery_month_btn"):
+                    selected_date = f"{month:02d}/{year}"
+                    st.session_state.temp_delivery_month = selected_date
+                    st.session_state.show_delivery_picker = False
+                    st.rerun()
+        
+        # Special handling for quantity (whole numbers only)
+        elif field_key == 'quantity':
+            quantity_val = st.number_input(
+                label=label,
+                value=int(float(current_value or 0)),
+                min_value=0,
+                step=1,
+                key=f"field_{field_key}"
+            )
+            form_data[field_key] = quantity_val
+            st.session_state.calc_quantity = float(quantity_val)
+        
+        # Special handling for rate
+        elif field_key == 'rate':
+            rate_val = st.number_input(
+                label=label,
+                value=float(current_value or 0),
+                min_value=0.0,
+                step=0.01,
+                key=f"field_{field_key}"
+            )
+            form_data[field_key] = rate_val
+            st.session_state.calc_rate = rate_val
+        
+        # Special handling for budget (read-only, calculated)
+        elif field_key == 'budget':
+            st.session_state.calc_budget = (st.session_state.calc_quantity * st.session_state.calc_rate) / 10000
+            st.number_input(
+                label=label,
+                value=st.session_state.calc_budget,
+                disabled=True,
+                key=f"field_{field_key}",
+                format="%.2f"
+            )
+            form_data[field_key] = st.session_state.calc_budget
+        
+        # Special handling for VAT rate (dropdown)
+        elif field_key == 'vat_rate':
+            vat_option = st.selectbox(
+                label=label,
+                options=['non-GCC (0%)', 'GCC (5%)'],
+                index=0 if st.session_state.calc_vat_type == 'non-GCC' else 1,
+                key=f"field_{field_key}"
+            )
+            
+            if 'non-GCC' in vat_option:
+                st.session_state.calc_vat_type = 'non-GCC'
+                vat_percent = 0
             else:
-                layout.append([
-                    sg.Text(label, size=(20, 1)),
-                    sg.Input(str(current_value), key=field_key, readonly=is_readonly, size=(30, 1))
-                ])
+                st.session_state.calc_vat_type = 'GCC'
+                vat_percent = 5
+            
+            form_data[field_key] = vat_percent
+            
+            # Display VAT amount (read-only, calculated)
+            st.session_state.calc_vat_amount = (st.session_state.calc_budget * vat_percent) / 100
+            st.number_input(
+                label="VAT Amount",
+                value=st.session_state.calc_vat_amount,
+                disabled=True,
+                key="vat_amount_display",
+                format="%.2f"
+            )
         
-        layout.append([sg.Separator()])
+        # Special handling for total amount (read-only, calculated)
+        elif field_key == 'total_amount':
+            st.session_state.calc_total_amount = st.session_state.calc_budget + st.session_state.calc_vat_amount
+            st.number_input(
+                label=label,
+                value=st.session_state.calc_total_amount,
+                disabled=True,
+                key=f"field_{field_key}",
+                format="%.2f"
+            )
+            form_data[field_key] = st.session_state.calc_total_amount
         
-        # Buttons
-        layout.append([
-            sg.Button('Save Invoice', button_color=('white', 'green'), size=(15, 1)),
-            sg.Button('Clear', size=(15, 1)),
-            sg.Button('Exit', button_color=('white', 'red'), size=(15, 1))
-        ])
+        # Read-only fields
+        elif is_readonly:
+            st.text_input(
+                label=label,
+                value=str(current_value),
+                disabled=True,
+                key=f"field_{field_key}"
+            )
+            form_data[field_key] = str(current_value)
         
-        layout.append([
-            sg.Multiline(size=(80, 5), key='-OUTPUT-', disabled=True)
-        ])
-        
-        return sg.Window('Invoice Template Automation', layout, finalize=True)
+        # Regular text/date inputs
+        else:
+            form_data[field_key] = st.text_input(
+                label=label,
+                value=str(current_value),
+                key=f"field_{field_key}"
+            )
+
+with col2:
+    st.subheader("Actions")
     
-    def run(self):
-        """Run the UI"""
-        if not self.load_template():
-            return
-        
-        window = self.create_window()
-        
-        while True:
-            event, values = window.read()
-            
-            if event == sg.WINDOW_CLOSED or event == 'Exit':
-                break
-            
-            elif event == 'Save Invoice':
-                self.handle_save(window, values)
-            
-            elif event == 'Clear':
-                self.handle_clear(window)
-        
-        window.close()
-        self.excel_handler.close()
-    
-    def handle_save(self, window, values):
-        """Handle save button click"""
+    # Save button
+    if st.button("💾 Save Invoice", use_container_width=True):
         try:
-            # Prepare data dictionary
-            data_to_save = {}
-            for field_key in INVOICE_FIELDS.keys():
-                if field_key in values:
-                    data_to_save[field_key] = values[field_key]
-            
             # Validate data
-            if not self.validator.validate_all(data_to_save):
-                errors = self.validator.get_errors()
-                error_msg = "Validation Errors:\n" + "\n".join(errors)
-                sg.popup_error(error_msg, title="Validation Failed")
-                return
-            
-            # Update and save
-            self.excel_handler.update_invoice(data_to_save)
-            output_path = self.excel_handler.save_invoice()
-            
-            output_text = f"✓ Invoice saved successfully!\n\nLocation: {output_path}"
-            window['-OUTPUT-'].update(output_text)
-            sg.popup_ok(output_text, title="Success")
-            
+            if not st.session_state.validator.validate_all(form_data):
+                errors = st.session_state.validator.get_errors()
+                st.error("**Validation Errors:**\n\n" + "\n".join(f"- {e}" for e in errors))
+            else:
+                # Save invoice
+                st.session_state.excel_handler.update_invoice(form_data)
+                output_path = st.session_state.excel_handler.save_invoice()
+                st.success(f"✓ Invoice saved successfully!\n\nLocation: `{output_path}`")
         except Exception as e:
-            error_msg = f"Error saving invoice: {str(e)}"
-            window['-OUTPUT-'].update(error_msg)
-            sg.popup_error(error_msg, title="Error")
+            st.error(f"Error saving invoice: {str(e)}")
     
-    def handle_clear(self, window):
-        """Handle clear button click"""
-        for field_key in INVOICE_FIELDS.keys():
-            if not INVOICE_FIELDS[field_key].get('read_only', False):
-                window[field_key].update('')
-        window['-OUTPUT-'].update('')
+    # Clear button
+    if st.button("🗑️ Clear Fields", use_container_width=True):
+        # Reset non-readonly fields
+        for field_key, field_config in INVOICE_FIELDS.items():
+            if not field_config.get('read_only', False):
+                st.session_state.pop(f"field_{field_key}", None)
+        st.session_state.calc_quantity = 0.0
+        st.session_state.calc_rate = 0.0
+        st.session_state.calc_budget = 0.0
+        st.session_state.calc_vat_type = 'non-GCC'
+        st.session_state.calc_vat_amount = 0.0
+        st.session_state.calc_total_amount = 0.0
+        st.rerun()
 
+st.markdown("---")
 
-def main():
-    """Main entry point"""
-    ui = InvoiceUI()
-    ui.run()
+# Summary section
+st.subheader("📊 Summary")
+summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
 
+with summary_col1:
+    st.metric("Budget", f"AED {st.session_state.calc_budget:,.2f}")
+with summary_col2:
+    st.metric("VAT Type", st.session_state.calc_vat_type)
+with summary_col3:
+    st.metric("VAT Amount", f"AED {st.session_state.calc_vat_amount:,.2f}")
+with summary_col4:
+    st.metric("Total Amount", f"AED {st.session_state.calc_total_amount:,.2f}", delta=f"+{st.session_state.calc_vat_amount:.2f}" if st.session_state.calc_vat_amount > 0 else None)
 
-if __name__ == '__main__':
-    main()
+st.caption("Invoice Template Automation System")

@@ -8,6 +8,7 @@ from excel_handler import ExcelHandler
 from validator import InvoiceValidator
 from datetime import datetime, date, timedelta
 import calendar
+import math
 
 
 # Page config
@@ -235,6 +236,17 @@ with col1:
                 key=f"field_{field_key}"
             )
 
+    # Show header preview (merged B1) as read-only so user can verify
+    try:
+        from config import INVOICE_HEADER_CELL
+        header_val = st.session_state.current_data.get('header', '')
+        if header_val is None:
+            header_val = ''
+        st.markdown("**Header Preview (top row)**")
+        st.text_area("Header", value=str(header_val), disabled=True, height=70)
+    except Exception:
+        pass
+
 with col2:
     st.subheader("Actions")
     
@@ -257,6 +269,43 @@ with col2:
                     except Exception:
                         # leave due_date as-is if parsing fails
                         pass
+
+                # Compute total in words (dollars only)
+                try:
+                    total_val = float(form_data.get('total_amount', 0) or 0)
+                except Exception:
+                    total_val = 0.0
+
+                def _int_to_words(n):
+                    # supports 0 <= n < 1 trillion
+                    to19 = ['Zero','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen']
+                    tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety']
+
+                    def words(num):
+                        if num < 20:
+                            return to19[num]
+                        if num < 100:
+                            return tens[num//10] + ('' if num%10==0 else ' ' + to19[num%10])
+                        if num < 1000:
+                            return to19[num//100] + ' Hundred' + ('' if num%100==0 else ' ' + words(num%100))
+                        for p, w in [(10**9, 'Billion'), (10**6, 'Million'), (1000, 'Thousand')]:
+                            if num >= p:
+                                return words(num//p) + ' ' + w + ('' if num%p==0 else ' ' + words(num%p))
+                        return ''
+                    return words(n)
+
+                dollars = int(math.floor(abs(total_val)))
+                cents = int(round((abs(total_val) - dollars) * 100))
+                words_parts = []
+                if dollars == 0:
+                    words_parts.append('Zero Dollars')
+                else:
+                    words_parts.append(f"{_int_to_words(dollars)} Dollars")
+                if cents > 0:
+                    words_parts.append(f"and {_int_to_words(cents)} Cents")
+                total_words = ' '.join(words_parts)
+                # Force uppercase (user-friendly)
+                form_data['total_in_words'] = total_words.upper()
 
                 # Save invoice; filename should be invoice number
                 inv_no = form_data.get('invoice_no') or 'Invoice'

@@ -7,6 +7,8 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 from config import TEMPLATE_FILE, INVOICE_FIELDS, OUTPUT_FOLDER
+import re
+from config import INVOICE_HEADER_CELL
 
 
 class ExcelHandler:
@@ -94,6 +96,23 @@ class ExcelHandler:
                         cell_ref = field_config['cell']
                         # For date fields that may be strings, try to keep them as-is; the template will display string
                         self.set_cell_value(cell_ref, value)
+            # If invoice_no provided, update the merged header cell by replacing existing invoice token
+            inv = data_dict.get('invoice_no')
+            if inv and INVOICE_HEADER_CELL and self.worksheet is not None:
+                try:
+                    current = str(self.worksheet[INVOICE_HEADER_CELL].value or '')
+                    # replace first occurrence of pattern like INV-... with the new invoice
+                    new_header = re.sub(r'INV-[A-Za-z0-9-]+', str(inv), current, count=1)
+                    # if pattern not found, attempt to insert invoice between pipes if present
+                    if new_header == current:
+                        # try to replace between pipes like '| old |' -> replace the middle match
+                        parts = current.split('|')
+                        if len(parts) >= 3:
+                            parts[1] = f" {inv} "
+                            new_header = '|'.join(parts)
+                    self.worksheet[INVOICE_HEADER_CELL].value = new_header
+                except Exception:
+                    pass
         except Exception as e:
             raise Exception(f"Error updating invoice: {str(e)}")
     

@@ -52,6 +52,12 @@ INVOICE_FIELDS = {
         'cell': 'F16',
         'type': 'string'
     },
+    'description': {
+        'label': 'Description',
+        'sheet': 'Invoice',
+        'cell': 'C21',
+        'type': 'string'
+    },
     'quantity': {
         'label': 'Quantity',
         'sheet': 'Invoice',
@@ -83,6 +89,12 @@ INVOICE_FIELDS = {
         'cell': 'F26',
         'type': 'numeric'
     },
+    'total_in_words': {
+        'label': 'Total (in words)',
+        'sheet': 'Invoice',
+        'cell': 'C26',
+        'type': 'string'
+    },
     'total_amount': {
         'label': 'Total Amount',
         'sheet': 'Invoice',
@@ -91,6 +103,9 @@ INVOICE_FIELDS = {
         'read_only': True
     }
 }
+
+# Header merged cell (B1 across B-F) that contains license/invoice/tax info
+INVOICE_HEADER_CELL = 'B1'
 
 # File paths
 TEMPLATE_FILE = '../Yazle_Invoice_Template_Final.xlsx'

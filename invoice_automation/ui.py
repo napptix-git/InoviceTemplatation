@@ -56,8 +56,8 @@ with col1:
     form_data = {}
     
     for field_key, field_config in INVOICE_FIELDS.items():
-        # Skip calculated fields from UI display
-        if field_key in ['due_date', 'vat_amount', 'total_in_words', 'total_amount']:
+        # Skip calculated fields from UI display except total_amount which we show read-only
+        if field_key in ['due_date', 'vat_amount', 'total_in_words']:
             continue
         
         label = field_config['label']
@@ -83,13 +83,14 @@ with col1:
             st.markdown("**Date**")
             col_input, col_button = st.columns([0.8, 0.2])
             with col_input:
-                # Use temp_date if it was set from picker, otherwise use current_value
-                display_value = st.session_state.get('temp_date', str(current_value))
+                # Use temp_date if it was set from picker; otherwise show template value as placeholder
+                temp_date = st.session_state.get('temp_date')
+                placeholder_val = str(current_value) if current_value else "DD/MM/YYYY"
                 date_input = st.text_input(
                     label="Select Date",
-                    value=display_value,
+                    value=temp_date or "",
                     key=f"field_{field_key}",
-                    placeholder="DD/MM/YYYY"
+                    placeholder=placeholder_val
                 )
                 form_data[field_key] = date_input
             with col_button:
@@ -117,13 +118,14 @@ with col1:
             st.markdown("**Delivery Month**")
             col_input, col_button = st.columns([0.8, 0.2])
             with col_input:
-                # Use temp_delivery_month if it was set from picker, otherwise use current_value
-                display_value = st.session_state.get('temp_delivery_month', str(current_value))
+                # Use temp_delivery_month if it was set from picker; otherwise show template value as placeholder
+                temp_delivery = st.session_state.get('temp_delivery_month')
+                placeholder_dm = str(current_value) if current_value else "MM/YYYY"
                 delivery_month_input = st.text_input(
                     label="Select Month",
-                    value=display_value,
+                    value=temp_delivery or "",
                     key=f"field_{field_key}",
-                    placeholder="MM/YYYY"
+                    placeholder=placeholder_dm
                 )
                 form_data[field_key] = delivery_month_input
             with col_button:
@@ -144,33 +146,41 @@ with col1:
                     st.session_state.show_delivery_picker = False
                     st.rerun()
         
-        # Special handling for quantity (whole numbers only)
+        # Special handling for quantity (show template as placeholder, accept numeric input)
         elif field_key == 'quantity':
-            quantity_val = st.number_input(
+            placeholder_qty = str(int(float(current_value or 0))) if current_value else ""
+            qty_input = st.text_input(
                 label=label,
-                value=int(float(current_value or 0)),
-                min_value=0,
-                step=1,
+                value="",
+                placeholder=placeholder_qty,
                 key=f"field_{field_key}"
             )
+            try:
+                quantity_val = int(float(qty_input)) if str(qty_input).strip() != '' else 0
+            except Exception:
+                quantity_val = 0
             form_data[field_key] = quantity_val
             st.session_state.calc_quantity = float(quantity_val)
         
-        # Special handling for rate
+        # Special handling for rate (show template as placeholder, accept numeric input)
         elif field_key == 'rate':
-            rate_val = st.number_input(
+            placeholder_rate = str(float(current_value)) if current_value else ""
+            rate_input = st.text_input(
                 label=label,
-                value=float(current_value or 0),
-                min_value=0.0,
-                step=0.01,
+                value="",
+                placeholder=placeholder_rate,
                 key=f"field_{field_key}"
             )
+            try:
+                rate_val = float(rate_input) if str(rate_input).strip() != '' else 0.0
+            except Exception:
+                rate_val = 0.0
             form_data[field_key] = rate_val
             st.session_state.calc_rate = rate_val
         
         # Special handling for budget (read-only, calculated)
         elif field_key == 'budget':
-            st.session_state.calc_budget = (st.session_state.calc_quantity * st.session_state.calc_rate) / 10000
+            st.session_state.calc_budget = (st.session_state.calc_quantity * st.session_state.calc_rate) / 1000
             st.number_input(
                 label=label,
                 value=st.session_state.calc_budget,
@@ -201,8 +211,8 @@ with col1:
             # Calculate VAT amount (not shown in UI)
             st.session_state.calc_vat_amount = (st.session_state.calc_budget * vat_percent) / 100
         
-        # Read-only fields
-        elif is_readonly:
+        # Read-only fields (except total_amount which we render separately)
+        elif is_readonly and field_key != 'total_amount':
             st.text_input(
                 label=label,
                 value=str(current_value),
@@ -213,11 +223,26 @@ with col1:
         
         # Regular text/date inputs
         else:
+            # show existing template value as placeholder (grey) and leave input empty for user
+            placeholder_val = str(current_value) if current_value else ""
             form_data[field_key] = st.text_input(
                 label=label,
-                value=str(current_value),
+                value="",
+                placeholder=placeholder_val,
                 key=f"field_{field_key}"
             )
+
+        # Special handling for total amount (read-only, calculated)
+        if field_key == 'total_amount':
+            st.session_state.calc_total_amount = st.session_state.calc_budget + st.session_state.calc_vat_amount
+            st.number_input(
+                label=field_config['label'],
+                value=st.session_state.calc_total_amount,
+                disabled=True,
+                key=f"field_{field_key}",
+                format="%.2f"
+            )
+            form_data[field_key] = st.session_state.calc_total_amount
 
     # Show header preview (merged B1) as read-only so user can verify
     try:

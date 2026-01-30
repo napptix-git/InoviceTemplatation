@@ -64,6 +64,10 @@ class ExcelHandler:
                     parts = [value]
 
                 # write parts into cells in order; if fewer parts than cells, fill remaining with empty string
+                # If only one part provided and multiple target cells, duplicate it
+                if len(parts) == 1 and len(cell_ref) > 1:
+                    parts = [parts[0]] * len(cell_ref)
+
                 for idx, c in enumerate(cell_ref):
                     v = parts[idx] if idx < len(parts) else ''
                     self.worksheet[c].value = v

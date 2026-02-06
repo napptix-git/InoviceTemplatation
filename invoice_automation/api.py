@@ -22,6 +22,24 @@ excel_handler = ExcelHandler()
 validator = InvoiceValidator()
 client_manager = ClientManager()
 
+
+@app.route('/', methods=['GET'])
+def index():
+    """API welcome endpoint"""
+    return jsonify({
+        'message': 'Invoice Automation API',
+        'version': '1.0.0',
+        'endpoints': {
+            '/health': 'Health check',
+            '/api/invoice/initial': 'Get initial invoice data',
+            '/api/clients': 'Get all clients',
+            '/api/clients/add': 'Add new client (POST)',
+            '/api/invoice/next-number': 'Get next invoice number',
+            '/api/invoice/validate': 'Validate invoice (POST)',
+            '/api/invoice/save': 'Save invoice (POST)'
+        }
+    })
+
 # Load template data on startup
 try:
     excel_handler.load_template()

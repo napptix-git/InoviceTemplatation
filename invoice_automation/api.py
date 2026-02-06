@@ -143,12 +143,19 @@ def save_invoice():
     try:
         form_data = request.get_json()
         
-        # Validate data
-        if not validator.validate_all(form_data):
-            errors = validator.get_errors()
+        # Fields that must be present
+        required_fields = ['invoice_no', 'client_name', 'date', 'description', 'quantity', 'rate']
+        
+        # Check required fields
+        missing_fields = []
+        for field in required_fields:
+            if field not in form_data or not form_data[field]:
+                missing_fields.append(field)
+        
+        if missing_fields:
             return jsonify({
                 'success': False,
-                'errors': errors
+                'errors': [f"Missing required fields: {', '.join(missing_fields)}"]
             }), 400
         
         # Calculate due date (date + 30 days)
@@ -159,60 +166,75 @@ def save_invoice():
                 due_dt = parsed + timedelta(days=30)
                 due_str = due_dt.strftime("%d/%m/%Y")
                 form_data['due_date'] = due_str
-            except Exception:
-                pass
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'errors': [f"Invalid date format. Use DD/MM/YYYY: {str(e)}"]
+                }), 400
         
         # Ensure calculated fields
-        quantity = float(form_data.get('quantity', 0) or 0)
-        rate = float(form_data.get('rate', 0) or 0)
-        budget = (quantity * rate) / 1000
-        form_data['budget'] = budget
-        
-        # VAT calculation
-        vat_rate_str = form_data.get('vat_rate', 'non-GCC (0%)')
-        vat_percent = 5 if 'GCC' in vat_rate_str else 0
-        vat_amount = (budget * vat_percent) / 100
-        form_data['vat_amount'] = vat_amount
-        form_data['vat_rate'] = f"VAT({vat_percent}%)"
-        
-        # Total amount
-        total_amount = budget + vat_amount
-        form_data['total_amount'] = total_amount
-        
-        # Total in words
-        dollars = int(math.floor(abs(total_amount)))
-        cents = int(round((abs(total_amount) - dollars) * 100))
-        words_parts = []
-        if dollars == 0:
-            words_parts.append('Zero Dollars')
-        else:
-            words_parts.append(f"{_int_to_words(dollars)} Dollars")
-        if cents > 0:
-            words_parts.append(f"and {_int_to_words(cents)} Cents")
-        total_words = ' '.join(words_parts)
-        form_data['total_in_words'] = total_words.upper()
+        try:
+            quantity = float(form_data.get('quantity', 0) or 0)
+            rate = float(form_data.get('rate', 0) or 0)
+            budget = (quantity * rate) / 1000
+            form_data['budget'] = budget
+            
+            # VAT calculation
+            vat_rate_str = form_data.get('vat_rate', 'non-GCC (0%)')
+            vat_percent = 5 if 'GCC' in vat_rate_str else 0
+            vat_amount = (budget * vat_percent) / 100
+            form_data['vat_amount'] = vat_amount
+            form_data['vat_rate'] = f"VAT({vat_percent}%)"
+            
+            # Total amount
+            total_amount = budget + vat_amount
+            form_data['total_amount'] = total_amount
+            
+            # Total in words
+            dollars = int(math.floor(abs(total_amount)))
+            cents = int(round((abs(total_amount) - dollars) * 100))
+            words_parts = []
+            if dollars == 0:
+                words_parts.append('Zero Dollars')
+            else:
+                words_parts.append(f"{_int_to_words(dollars)} Dollars")
+            if cents > 0:
+                words_parts.append(f"and {_int_to_words(cents)} Cents")
+            total_words = ' '.join(words_parts)
+            form_data['total_in_words'] = total_words.upper()
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'errors': [f"Error calculating fields: {str(e)}"]
+            }), 400
         
         # Save invoice
-        excel_handler.update_invoice(form_data)
-        inv_no = form_data.get('invoice_no', 'Invoice')
-        safe_name = str(inv_no).strip().replace('/', '-').replace('\n', '_')
-        filename = f"{safe_name}.xlsx"
-        
-        output_path = excel_handler.save_invoice(output_filename=filename)
-        
-        # Increment invoice number
-        client_manager.increment_invoice_number()
-        
-        return jsonify({
-            'success': True,
-            'message': 'Invoice saved successfully',
-            'output_path': output_path
-        })
+        try:
+            excel_handler.update_invoice(form_data)
+            inv_no = form_data.get('invoice_no', 'Invoice')
+            safe_name = str(inv_no).strip().replace('/', '-').replace('\n', '_')
+            filename = f"{safe_name}.xlsx"
+            
+            output_path = excel_handler.save_invoice(output_filename=filename)
+            
+            # Increment invoice number
+            client_manager.increment_invoice_number()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Invoice saved successfully',
+                'output_path': output_path
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'errors': [f"Error saving invoice: {str(e)}"]
+            }), 500
     
     except Exception as e:
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': f"Unexpected error: {str(e)}"
         }), 500
 
 
